@@ -128,6 +128,27 @@ public class CrowdsourcingVarbits
 		}
 	}
 
+	private void pushVarChange(int varType, int varbitNumber, int oldValue, int newValue, int tick)
+	{
+		/* Wait a tick before grabbing location.
+		 *
+		 * This seems to cause fewer issues than not waiting a tick.
+		 * Only noticeable issues seem to be in places like Dorgesh-Kaan, where you can go up and down
+		 * stairs quickly to trick it into thinking varbs were updated in a different location.
+		 * Without waiting a tick, certain loads/instances are messed up, including the Dorgesh-Kaan light
+		 * varbs when loading a part of the map you haven't been to.
+		 */
+		clientThread.invokeLater(() ->
+		{
+			LocalPoint local = LocalPoint.fromWorld(client, client.getLocalPlayer().getWorldLocation());
+			WorldPoint location = WorldPoint.fromLocalInstance(client, local);
+			boolean isInInstance = client.isInInstancedRegion();
+
+			VarData varbitData = new VarData(varType, varbitNumber, oldValue, newValue, tick, isInInstance, location);
+			crowdsourcingManager.storeEvent(varbitData);
+		});
+	}
+
 	@Subscribe
 	public void onVarbitChanged(VarbitChanged varbitChanged)
 	{
@@ -147,30 +168,10 @@ public class CrowdsourcingVarbits
 				// Set oldVarps2 so it doesn't pick up varbit changes
 				client.setVarbitValue(oldVarps2, i, newValue);
 
-				// If the varbit is being changed on an initializing tick (when logging in),
-				// don't push out varbit changes. There are too many, and generally don't give enough info on login.
-				if (tick != initializingTick)
+				// If the varbit is being changed on an initializing tick (when logging in), don't push out a change
+				if (tick != initializingTick && !blackList.contains(i))
 				{
-					if (!blackList.contains(i))
-					{
-						/* Wait a tick before grabbing location.
-						 *
-						 * This seems to cause fewer issues than not waiting a tick.
-						 * Only noticeable issues seem to be in places like Dorgesh-Kaan, where you can go up and down
-						 * stairs quickly to trick it into thinking varbs were updated in a different location.
-						 * Without waiting a tick, certain loads/instances are messed up, including the Dorgesh-Kaan light
-						 * varbs when loading a part of the map you haven't been to.
-						 */
-						clientThread.invokeLater(() ->
-						{
-							LocalPoint local = LocalPoint.fromWorld(client, client.getLocalPlayer().getWorldLocation());
-							WorldPoint location = WorldPoint.fromLocalInstance(client, local);
-							boolean isInInstance = client.isInInstancedRegion();
-
-							VarData varbitData = new VarData(VARBIT, i, oldValue, newValue, tick, isInInstance, location);
-							crowdsourcingManager.storeEvent(varbitData);
-						});
-					}
+					pushVarChange(VARBIT, i, oldValue, newValue, tick);
 				}
 			}
 		}
@@ -181,14 +182,7 @@ public class CrowdsourcingVarbits
 		// Push out varp changes
 		if (oldValue != newValue && tick != initializingTick)
 		{
-			clientThread.invokeLater(() -> {
-				LocalPoint local = LocalPoint.fromWorld(client, client.getLocalPlayer().getWorldLocation());
-				WorldPoint location = WorldPoint.fromLocalInstance(client, local);
-				boolean isInInstance = client.isInInstancedRegion();
-
-				VarData varPlayerData = new VarData(VARPLAYER, index, oldValue, newValue, tick, isInInstance, location);
-				crowdsourcingManager.storeEvent(varPlayerData);
-			});
+			pushVarChange(VARPLAYER, index, oldValue, newValue, tick);
 		}
 
 		oldVarps[index] = varps[index];
