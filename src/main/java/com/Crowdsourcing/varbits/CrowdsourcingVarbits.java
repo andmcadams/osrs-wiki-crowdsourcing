@@ -55,6 +55,8 @@ public class CrowdsourcingVarbits
 	private ClientThread clientThread;
 
 	private static final int VARBITS_ARCHIVE_ID = 14;
+	private static final int VARBIT = 0;
+	private static final int VARPLAYER = 1;
 
 	private int[] oldVarps = null;
 	private int[] oldVarps2 = null;
@@ -64,24 +66,19 @@ public class CrowdsourcingVarbits
 
 	private static HashSet<Integer> blackList;
 
-	private static final int VARBIT = 0;
-	private static final int VARPLAYER = 1;
-
 	public void startUp()
 	{
 
 		/* Blacklist certain common varbs that give us little useful data.
 		 * 357 - Equipped weapon type
 		 * 5983 - Dialogue option appear/disappear
-		 * 8354 - 100 tick counter
 		 */
 		blackList = new HashSet<>();
 		blackList.add(357);
 		blackList.add(5983);
-		blackList.add(8354);
 		varbits = HashMultimap.create();
 
-		if(oldVarps == null)
+		if (oldVarps == null)
 		{
 			oldVarps = new int[client.getVarps().length];
 			oldVarps2 = new int[client.getVarps().length];
@@ -94,7 +91,9 @@ public class CrowdsourcingVarbits
 		// For all varbits, add their ids to the multimap with the varp index as their key
 		clientThread.invoke(() -> {
 			if (client.getIndexConfig() == null)
+			{
 				return false;
+			}
 			IndexDataBase indexVarbits = client.getIndexConfig();
 			final int[] varbitIds = indexVarbits.getFileIds(VARBITS_ARCHIVE_ID);
 			for (int id : varbitIds)
@@ -113,6 +112,8 @@ public class CrowdsourcingVarbits
 	{
 		varbits = null;
 		oldVarps = null;
+		oldVarps2 = null;
+		blackList = null;
 	}
 
 	@Subscribe
@@ -141,31 +142,35 @@ public class CrowdsourcingVarbits
 			int oldValue = client.getVarbitValue(oldVarps, i);
 			int newValue = client.getVarbitValue(varps, i);
 
-			// If the varbit is being changed on an initializing tick (when logging in),
-			// don't push out varbit changes. There are too many, and are generally uninteresting.
-			if (oldValue != newValue && tick != initializingTick)
+			if (oldValue != newValue)
 			{
+				// Set oldVarps2 so it doesn't pick up varbit changes
 				client.setVarbitValue(oldVarps2, i, newValue);
-				if (!blackList.contains(i))
-				{
-					/* Wait a tick before grabbing location.
-					 *
-					 * This seems to cause fewer issues than not waiting a tick.
-					 * Only noticeable issues seem to be in places like Dorgesh-Kaan, where you can go up and down
-					 * stairs quickly to trick it into thinking varbs were updated in a different location.
-					 * Without waiting a tick, certain loads/instances are messed up, including the Dorgesh-Kaan light
-					 * varbs when loading a part of the map you haven't been to.
-					 */
-					clientThread.invokeLater(() ->
-					{
-						LocalPoint local = LocalPoint.fromWorld(client, client.getLocalPlayer().getWorldLocation());
-						WorldPoint location = WorldPoint.fromLocalInstance(client, local);
-						boolean isInInstance = client.isInInstancedRegion();
 
-						VarData varbitData = new VarData(VARBIT, i, oldValue, newValue, tick, isInInstance, location);
-						crowdsourcingManager.storeEvent(varbitData);
-						// log.info(varbitData.toString());
-					});
+				// If the varbit is being changed on an initializing tick (when logging in),
+				// don't push out varbit changes. There are too many, and generally don't give enough info on login.
+				if (tick != initializingTick)
+				{
+					if (!blackList.contains(i))
+					{
+						/* Wait a tick before grabbing location.
+						 *
+						 * This seems to cause fewer issues than not waiting a tick.
+						 * Only noticeable issues seem to be in places like Dorgesh-Kaan, where you can go up and down
+						 * stairs quickly to trick it into thinking varbs were updated in a different location.
+						 * Without waiting a tick, certain loads/instances are messed up, including the Dorgesh-Kaan light
+						 * varbs when loading a part of the map you haven't been to.
+						 */
+						clientThread.invokeLater(() ->
+						{
+							LocalPoint local = LocalPoint.fromWorld(client, client.getLocalPlayer().getWorldLocation());
+							WorldPoint location = WorldPoint.fromLocalInstance(client, local);
+							boolean isInInstance = client.isInInstancedRegion();
+
+							VarData varbitData = new VarData(VARBIT, i, oldValue, newValue, tick, isInInstance, location);
+							crowdsourcingManager.storeEvent(varbitData);
+						});
+					}
 				}
 			}
 		}
@@ -183,7 +188,6 @@ public class CrowdsourcingVarbits
 
 				VarData varPlayerData = new VarData(VARPLAYER, index, oldValue, newValue, tick, isInInstance, location);
 				crowdsourcingManager.storeEvent(varPlayerData);
-				// log.info(varPlayerData.toString());
 			});
 		}
 
